@@ -6,9 +6,9 @@ contract SupplyChain {
     // <owner>
   address public owner;
     // <skuCount>
-  uint skuCounter;
+  uint public skuCount;
     // <items mapping>
-  mapping(address => uint) public items;
+  mapping(uint => Item) items;
     // <enum State: ForSale, Sold, Shipped, Received>
   enum State {
     ForSale,
@@ -22,22 +22,22 @@ contract SupplyChain {
       string name;
       uint sku;
       uint price;
-      bool state;
-      address seller;
-      address buyer;
+      State state;
+      address payable seller;
+      address payable buyer;
     }
     /* 
     * Events
     */
 
     // <LogForSale event: sku arg>
-  event LogForSale(uint sku);
+  event LogForSale(uint indexed sku);
     // <LogSold event: sku arg>
-  event LogSold(uint sku);
+  event LogSold(uint indexed sku);
     // <LogShipped event: sku arg>
-  event LogShipped(uint sku);
+  event LogShipped(uint indexed sku);
     // <LogReceived event: sku arg>
-  event LogReceived(uint sku);
+  event LogReceived(uint indexed sku);
 
   /* 
   * Modifiers
@@ -58,17 +58,18 @@ contract SupplyChain {
 
   modifier paidEnough(uint _price) { 
     // require(msg.value >= _price); 
-    require(msg.value >= price);
+    require(msg.value >= _price);
     _;
   }
 
   modifier checkValue(uint _sku) {
     //refund them after pay for item (why it is before, _ checks for logic before func)
     _;
-    uint _price = items[_sku];
+    uint _price = items[_sku].price;
     uint amountToRefund = msg.value - _price;
     items[_sku].buyer.transfer(amountToRefund);
   }
+
 
     // For each of the following modifiers, use what you learned about modifiers
     // to give them functionality. For example, the forSale modifier should
@@ -78,19 +79,29 @@ contract SupplyChain {
     // that an Item is for sale. Hint: What item properties will be non-zero when
     // an Item has been added?
 
-    modifier forSale {
-      require(
+    modifier forSale(uint _sku) {
+      require(items[_sku].state == State.ForSale);
+      require(items[_sku].seller != address(0));
+      _;
     }
     modifier sold(uint _sku) {
+      require(items[_sku].state == State.Sold);
+      _;
     }
-    modifier shipped(uint _sku) {}
-    modifier received(uint _sku) {}
+    modifier shipped(uint _sku) {
+            require(items[_sku].state == State.Shipped);
+            _;
+    }
+    modifier received(uint _sku) {
+            require(items[_sku].state == State.Received);
+            _;
+    }
 
     constructor() public {
     // 1. Set the owner to the transaction sender
-    owner = msg.sender
+    owner = msg.sender;
     // 2. Initialize the sku count to 0. Question, is this necessary?
-    Item[1] = 0
+    skuCount = 0;
   }
 
   function addItem(string memory _name, uint _price) public returns (bool) {
@@ -125,8 +136,11 @@ contract SupplyChain {
   //    - check the value after the function is called to make 
   //      sure the buyer is refunded any excess ether sent. 
   // 6. call the event associated with this function!
-  function buyItem(uint sku) public payable {
-    emit 
+  function buyItem(uint sku) public payable forSale(sku) paidEnough(items[sku].price) checkValue(sku) {
+    require(items[sku].seller.send(items[sku].price));
+    items[sku].buyer = msg.sender;
+    items[sku].state = State.Sold;
+    emit LogSold(sku);
    }
 
   // 1. Add modifiers to check:
@@ -134,14 +148,21 @@ contract SupplyChain {
   //    - the person calling this function is the seller. 
   // 2. Change the state of the item to shipped. 
   // 3. call the event associated with this function!
-  function shipItem(uint sku) public verifyCaller() shipped() {}
+  function shipItem(uint sku) public verifyCaller(items[sku].seller) sold(sku) {
+
+    items[sku].state = State.Shipped;
+    emit LogShipped(sku);
+  }
 
   // 1. Add modifiers to check 
   //    - the item is shipped already 
   //    - the person calling this function is the buyer. 
   // 2. Change the state of the item to received. 
   // 3. Call the event associated with this function!
-  function receiveItem(uint sku) public {}
+  function receiveItem(uint sku) public verifyCaller(items[sku].buyer) shipped(sku)  {
+    items[sku].state = State.Received;
+    emit LogReceived(sku);
+  }
 
   // Uncomment the following code block. it is needed to run tests
    function fetchItem(uint _sku) public view  
